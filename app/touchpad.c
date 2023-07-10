@@ -79,11 +79,14 @@ void touchpad_gpio_irq(uint gpio, uint32_t events)
 
 	const uint8_t motion = read_register8(REG_MOTION);
 	if (motion & BIT_MOTION_MOT) {
-		int8_t x = read_register8(REG_DELTA_X);
-		int8_t y = read_register8(REG_DELTA_Y);
-
-		x = ((x < 127) ? x : (x - 256)) * -1;
-		y = ((y < 127) ? y : (y - 256));
+	        uint8_t x_in = read_register8(REG_DELTA_X);
+	        uint8_t y_in = read_register8(REG_DELTA_Y);
+	
+	        int8_t x = x_in <= 127 ? -1 * x_in - 1 : -1 * (x_in - 255);
+	        int8_t y = y_in <= 127 ? y_in : y_in - 256;
+	
+	        x = x >= -100 && x < 101 ? x : 0;
+	        y = y >= -100 && y < 101 ? y : 0;
 
 		if (self.callbacks) {
 			struct touch_callback *cb = self.callbacks;
