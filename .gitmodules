@@ -1,3 +1,6 @@
 [submodule "3rdparty/pico-sdk"]
 	path = 3rdparty/pico-sdk
 	url = https://github.com/raspberrypi/pico-sdk.git
+[submodule "pico-flashloader"]
+	path = 3rdparty/pico-flashloader
+	url = https://github.com/rhulme/pico-flashloader.git

@@ -58,3 +58,5 @@
 
 // #define PICO_DEFAULT_UART			1
 // #define PICO_DEFAULT_UART_TX_PIN	20
+
+#define PICO_FLASH_SIZE_BYTES (16 * 1024 * 1024)
