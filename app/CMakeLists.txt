@@ -15,6 +15,7 @@ add_executable(firmware
 	usb_descriptors.c
 	pi.c
 	rtc.c
+	update.c
 )
 
 add_compile_options(-Wall -Wextra -Wpedantic)
@@ -27,6 +28,7 @@ target_link_libraries(firmware
 	hardware_pwm
 	hardware_adc
 	hardware_rtc
+	hardware_flash
 	pico_bootsel_via_double_reset
 	pico_stdlib
 	tinyusb_device

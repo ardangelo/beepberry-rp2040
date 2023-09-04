@@ -72,6 +72,8 @@ set(FLASHLOADER_UF2 ${CMAKE_CURRENT_BINARY_DIR}/${FLASHLOADER}.uf2)
 
 add_subdirectory(app)
 
+target_include_directories(firmware PRIVATE ${FLASHLOADER_DIR})
+
 # Use a separate linker script for the application to make sure it is built
 # to run at the right location (after the flashloader).
 set_linker_script(firmware memmap_application.ld)
