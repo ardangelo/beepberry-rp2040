@@ -49,6 +49,9 @@ enum reg_id
 
 	REG_ID_STARTUP_REASON = 0x2E, // Why the Pi was started (see `power_on_reason` in pi.h)
 
+	REG_ID_UPDATE_MODE = 0x30, // Default 0, 1 to enter FW update mode, 2 to apply update
+	REG_ID_UPDATE_DATA = 0x31, // Write firmware byte
+
 	REG_ID_LAST,
 };
 
