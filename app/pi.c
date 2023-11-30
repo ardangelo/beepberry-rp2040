@@ -8,6 +8,14 @@
 
 #include <pico/stdlib.h>
 
+enum pi_state
+{
+	PI_STATE_OFF = 0,
+	PI_STATE_ON = 1,
+};
+
+static enum pi_state state;
+
 void pi_power_init(void)
 {
 	adc_init();
@@ -16,13 +24,18 @@ void pi_power_init(void)
 
 	gpio_init(PIN_PI_PWR);
 	gpio_set_dir(PIN_PI_PWR, GPIO_OUT);
+	gpio_put(PIN_PI_PWR, 0);
+	state = PI_STATE_OFF;
 }
 
-void pi_power_on(void)
+void pi_power_on(enum power_on_reason reason)
 {
-	gpio_put(PIN_PI_PWR, 0);
-	busy_wait_us(200000);
+	if (state == PI_STATE_ON) {
+		return;
+	}
+
 	gpio_put(PIN_PI_PWR, 1);
+	state = PI_STATE_ON;
 
 	// LED green while booting until driver loaded
     reg_set_value(REG_ID_LED, 1);
@@ -30,6 +43,43 @@ void pi_power_on(void)
     reg_set_value(REG_ID_LED_G, 128);
     reg_set_value(REG_ID_LED_B, 0);
 	led_sync();
+
+	// Update startup reason
+	reg_set_value(REG_ID_STARTUP_REASON, reason);
+}
+
+void pi_power_off(void)
+{
+	if (state == PI_STATE_OFF) {
+		return;
+	}
+
+	gpio_put(PIN_PI_PWR, 0);
+	state = PI_STATE_OFF;
+}
+
+static int64_t pi_power_on_alarm_callback(alarm_id_t _, void* __)
+{
+	pi_power_on(POWER_ON_REWAKE);
+
+	return 0;
+}
+
+void pi_schedule_power_on(uint32_t ms)
+{
+	add_alarm_in_ms(ms, pi_power_on_alarm_callback, NULL, true);
+}
+
+static int64_t pi_power_off_alarm_callback(alarm_id_t _, void* __)
+{
+	pi_power_off();
+
+	return 0;
+}
+
+void pi_schedule_power_off(uint32_t ms)
+{
+	add_alarm_in_ms(ms, pi_power_off_alarm_callback, NULL, true);
 }
 
 void led_init(void)

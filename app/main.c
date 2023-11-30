@@ -54,7 +54,8 @@ int main(void)
 
 	led_init();
 	pi_power_init();
-	pi_power_on();
+
+	pi_power_on(POWER_ON_FW_INIT);
 
 #ifndef NDEBUG
 	printf("Starting main loop\r\n");

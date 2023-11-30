@@ -34,8 +34,8 @@ enum reg_id
 	REG_ID_LED_G  = 0x22,
 	REG_ID_LED_B  = 0x23,
 
-	REG_ID_REWAKE_TIME = 0x24, // Power on the Pi in this many minutes
-	REG_ID_REWAKE = 0x25, // Write to shut off Pi, power on after REWAKE_TIME
+	REG_ID_REWAKE_MINS = 0x24, // Write to turn off Pi, power on in this many mins
+	REG_ID_SHUTDOWN_GRACE = 0x25, // Seconds to wait between shutdown signal and power off
 
 	REG_ID_RTC_SEC = 0x26,
 	REG_ID_RTC_MIN = 0x27,
@@ -46,6 +46,8 @@ enum reg_id
 	REG_ID_RTC_COMMIT = 0x2C,
 
 	REG_ID_DRIVER_STATE = 0x2D, // Set when driver is loaded / unloaded cleanly
+
+	REG_ID_STARTUP_REASON = 0x2E, // Why the Pi was started (see `power_on_reason` in pi.h)
 
 	REG_ID_LAST,
 };
