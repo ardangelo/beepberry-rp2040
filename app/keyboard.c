@@ -124,8 +124,11 @@ static void transition_hold_key_state(struct hold_key* hold_key, bool const pres
 
 						keyboard_inject_power_key();
 
-						// Schedule power off in one minute to give Pi time to shut down
-						pi_schedule_power_off(60 * 1000);
+						// Schedule power off
+						uint32_t shutdown_grace_ms = MAX(
+							reg_get_value(REG_ID_SHUTDOWN_GRACE) * 1000,
+							MINIMUM_SHUTDOWN_GRACE_MS);
+						pi_schedule_power_off(shutdown_grace_ms);
 
 						hold_key->state = KEY_STATE_LONG_HOLD;
 					}

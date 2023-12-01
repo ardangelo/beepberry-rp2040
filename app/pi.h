@@ -9,6 +9,7 @@ enum power_on_reason
 	POWER_ON_REWAKE = 0x3 // 0x2 = Pi was reawakened from a scheduled timer
 };
 
+#define MINIMUM_SHUTDOWN_GRACE_MS 5000
 
 void pi_power_init(void);
 void pi_power_on(enum power_on_reason reason);

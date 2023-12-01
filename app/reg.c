@@ -158,7 +158,9 @@ void reg_process_packet(uint8_t in_reg, uint8_t in_data, uint8_t *out_buffer, ui
 
 		// Get rewake and grace times in milliseconds
 		uint32_t rewake_ms = in_data * 60 * 1000;
-		uint32_t shutdown_grace_ms = reg_get_value(REG_ID_SHUTDOWN_GRACE) * 1000;
+		uint32_t shutdown_grace_ms = MAX(
+			reg_get_value(REG_ID_SHUTDOWN_GRACE) * 1000,
+			MINIMUM_SHUTDOWN_GRACE_MS);
 
 		// Check input time against shutdown grace time
 		// Plus some slop to allow for power cycling
