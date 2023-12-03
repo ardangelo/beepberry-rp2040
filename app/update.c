@@ -94,10 +94,10 @@ static int process_hex_record(char const* line, struct hex_record* record)
 	}
 
 	if (*line++ == ':') {
-		while (offset < sizeof(data)) {
+		while ((*line != '\0') && (offset < sizeof(data))) {
 
 			if (parse_2ch_hex(line, &value)) {
-				return 1;
+				return -1;
 			}
 
 			data[offset++] = value;
@@ -117,7 +117,7 @@ static int process_hex_record(char const* line, struct hex_record* record)
 		return 0;
 	}
 
-	return 1;
+	return -2;
 }
 
 static void flash_image(tFlashHeader* header, uint32_t length)
@@ -157,18 +157,23 @@ static void flash_image(tFlashHeader* header, uint32_t length)
 char update_line[1024];
 size_t update_line_idx;
 struct hex_record update_record;
-
 size_t flashbuf_offset;
 
 void update_init()
 {
 	update_line_idx = 0;
-	update_line[sizeof(update_line) - 1] = '\0';
 	flashbuf_offset = 0;
 }
 
 int update_recv(uint8_t b)
 {
+	int rc;
+
+	if (update_line_idx == sizeof(update_line)) {
+		reg_set_value(REG_ID_STARTUP_REASON, 10);
+		return -1;
+	}
+
 	if ((b == '\n') || (b == '\r')) {
 		b = '\0';
 	}
@@ -179,9 +184,13 @@ int update_recv(uint8_t b)
 		return 0;
 	}
 
-	if (process_hex_record(update_line, &update_record)) {
+	if ((rc = process_hex_record(update_line, &update_record))) {
+		rc = (-rc) + 10;
+		reg_set_value(REG_ID_STARTUP_REASON, rc);
 		return -1;
 	}
+
+	update_line_idx = 0;
 
 	switch (update_record.type) {
 
