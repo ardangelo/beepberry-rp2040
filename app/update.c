@@ -154,7 +154,59 @@ static void flash_image(tFlashHeader* header, uint32_t length)
 	}
 }
 
-void update_firmware_hex(char const* hex, size_t len)
+char update_line[1024];
+size_t update_line_idx;
+struct hex_record update_record;
+
+size_t flashbuf_offset;
+
+void update_init()
 {
-	
+	update_line_idx = 0;
+	update_line[sizeof(update_line) - 1] = '\0';
+	flashbuf_offset = 0;
+}
+
+int update_recv(uint8_t b)
+{
+	if ((b == '\n') || (b == '\r')) {
+		b = '\0';
+	}
+
+	update_line[update_line_idx++] = b;
+
+	if (b) {
+		return 0;
+	}
+
+	if (process_hex_record(update_line, &update_record)) {
+		return -1;
+	}
+
+	switch (update_record.type) {
+
+	case TYPE_DATA:
+		memcpy(&flashbuf.header.data[flashbuf_offset], update_record.data, update_record.count);
+		flashbuf_offset += update_record.count;
+		flashbuf_offset %= 65536;
+		break;
+
+	case TYPE_EOF:
+		flash_image(&flashbuf.header, flashbuf_offset);
+		return -1;
+		break;
+
+	case TYPE_EXTLIN:
+		flashbuf_offset = 0;
+		break;
+
+	case TYPE_EXTSEG:
+	case TYPE_STARTSEG:
+	case TYPE_STARTLIN:
+	default:
+		// Ignore
+		break;
+	}
+
+	return 0;
 }

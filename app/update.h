@@ -1,6 +1,9 @@
 #include "reg.h"
 
-// Parse and write Intel hex format firmware
-// Reboots on success to apply new firmware
-// Returns on failure
-void update_firmware_hex(char const* hex, size_t len);
+enum update_mode {
+	UPDATE_OFF = 0,
+	UPDATE_RECV = 1
+};
+
+void update_init();
+int update_recv(uint8_t b);

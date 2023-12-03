@@ -10,6 +10,7 @@
 #include "pi.h"
 #include "hardware/adc.h"
 #include "rtc.h"
+#include "update.h"
 
 #include <pico/stdlib.h>
 #include <RP2040.h> // TODO: When there's more than one RP chip, change this to be more generic
@@ -38,11 +39,19 @@ void reg_process_packet(uint8_t in_reg, uint8_t in_data, uint8_t *out_buffer, ui
 {
 	const bool is_write = (in_reg & PACKET_WRITE_MASK);
 	const uint8_t reg = (in_reg & ~PACKET_WRITE_MASK);
+	enum update_mode update_mode = UPDATE_OFF;
 	uint16_t adc_value;
 
 //	printf("read complete, is_write: %d, reg: 0x%02X\r\n", is_write, reg);
 
 	*out_len = 0;
+
+	// Special update modes
+	if (update_mode == UPDATE_RECV) {
+		if (update_recv(in_data) < 0) {
+			update_mode = UPDATE_OFF;
+		}
+	}
 
 	switch (reg) {
 
@@ -202,6 +211,22 @@ void reg_process_packet(uint8_t in_reg, uint8_t in_data, uint8_t *out_buffer, ui
 		rtc_set(reg_get_value(REG_ID_RTC_YEAR), reg_get_value(REG_ID_RTC_MON),
 			reg_get_value(REG_ID_RTC_MDAY), reg_get_value(REG_ID_RTC_HOUR),
 			reg_get_value(REG_ID_RTC_MIN), reg_get_value(REG_ID_RTC_SEC));
+		break;
+	}
+
+	case REG_ID_UPDATE_DATA:
+	{
+		if (is_write) {
+			if (update_mode == UPDATE_OFF) {
+				update_init();
+				update_mode = UPDATE_RECV;
+			}
+
+			update_recv(in_data);
+		} else {
+			out_buffer[0] = (uint8_t)update_mode;
+			*out_len = sizeof(uint8_t);
+		}
 		break;
 	}
 
