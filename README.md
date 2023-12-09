@@ -340,7 +340,7 @@ This register can be read and written to, it is 1 byte in size.
 
 Default value: 0
 
-### Firmware update (REG_UPDATE_DATA = 0x30, REG_UPDATE_RESET = 0x31)
+### Firmware update (REG_UPDATE_DATA = 0x30)
 
 Starting with Beepy firmware 3.0, firmware is loaded in two stages.
 
@@ -360,14 +360,23 @@ Reading `REG_UPDATE_DATA` will return an update status code
 - `UPDATE_FAILED_BAD_LINE = 6`
 - `UPDATE_FAILED_BAD_CHECKSUM = 7`
 
-Firmware updates are flashed by writing the contents of an image in Intel HEX format with Unix line endings byte-by-byte to `REG_UPDATE_DATA`.
+Firmware updates are flashed by writing byte-by-byte to `REG_UPDATE_DATA`:
+
+- Header line beginning with `+` e.g. `+Beepy`
+- Followed by the contents of an image in Intel HEX format
 
 By default, `REG_UPDATE_DATA` will be set to `UPDATE_OFF`.
 After writing, `REG_UPDATE_DATA` will be set to `UPDATE_RECV` if more data is expected.
 
-If the update completes successfully, `REG_UPDATE_DATA` will be `UPDATE_OFF`. Next, a power off signal will be sent to the Pi, followed by the flashing of the firmware and a reset.
-There is a delay configurable by `REG_SHUTDOWN_GRACE` to allow the operating system to cleanly shut down before the Pi is power cycled.
+If the update completes successfully:
+
+- `REG_UPDATE_DATA` will be set to `UPDATE_OFF`
+- Shutdown signal will be sent to the Pi
+- Delay to allow the Pi to cleanly shut down before poweroff (configurable with `REG_SHUTDOWN_GRACE`)
+- Firmware is flashed and the system is reset
+
 Please wait until the system reboots on its own before removing power.
 
 If the update failed, `REG_UPDATE_DATA` will contain an error code and the firmware will not be modified.
-Writing to `REG_UPDATE_RESET` will reset the update state for a retry.
+
+The header line `+...` will reset the update process, so an interrupted or failed update can be retried by restarting the firmware write.
