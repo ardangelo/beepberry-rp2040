@@ -216,38 +216,28 @@ void reg_process_packet(uint8_t in_reg, uint8_t in_data, uint8_t *out_buffer, ui
 	{
 		if (is_write) {
 
-			if (reg_get_value(REG_ID_UPDATE_DATA) == UPDATE_OFF) {
-				update_init();
-				reg_set_value(REG_ID_UPDATE_DATA, UPDATE_RECV);
-			}
+			if ((rc = update_recv(in_data))) {
 
-			if (reg_get_value(REG_ID_UPDATE_DATA) == UPDATE_RECV) {
+				// More to read or update failed
+				reg_set_value(REG_ID_UPDATE_DATA, (rc < 0)
+					? (uint8_t)(-rc)
+					: UPDATE_RECV);
 
-				if ((rc = update_recv(in_data))) {
+			// Update read successfully
+			} else {
 
-					// Update failed
-					if (rc < 0) {
-						reg_set_value(REG_ID_UPDATE_DATA, (uint8_t)(-rc));
-					}
+				reg_set_value(REG_ID_UPDATE_DATA, UPDATE_OFF);
 
-					// Otherwise, there's more to read
+				// Send shutdown signal to OS
+				keyboard_inject_power_key();
 
-				// Update read successfully
-				} else {
-
-					reg_set_value(REG_ID_UPDATE_DATA, UPDATE_OFF);
-
-					// Send shutdown signal to OS
-					keyboard_inject_power_key();
-
-					// Power off with grace time to give Pi time to shut down
-					uint32_t shutdown_grace_ms = MAX(
-						reg_get_value(REG_ID_SHUTDOWN_GRACE) * 1000,
-						MINIMUM_SHUTDOWN_GRACE_MS);
-					pi_schedule_power_off(shutdown_grace_ms);
-					add_alarm_in_ms(shutdown_grace_ms + 10,
-						update_commit_alarm_callback, NULL, true);
-				}
+				// Power off with grace time to give Pi time to shut down
+				uint32_t shutdown_grace_ms = MAX(
+					reg_get_value(REG_ID_SHUTDOWN_GRACE) * 1000,
+					MINIMUM_SHUTDOWN_GRACE_MS);
+				pi_schedule_power_off(shutdown_grace_ms);
+				add_alarm_in_ms(shutdown_grace_ms + 10,
+					update_commit_alarm_callback, NULL, true);
 			}
 
 		} else {
