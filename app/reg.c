@@ -11,7 +11,6 @@
 #include "hardware/adc.h"
 #include "rtc.h"
 #include "update.h"
-#include "sim-update.h"
 
 #include <pico/stdlib.h>
 #include <RP2040.h> // TODO: When there's more than one RP chip, change this to be more generic
@@ -36,23 +35,21 @@ static void touch_cb(int8_t x, int8_t y)
 }
 static struct touch_callback touch_callback = { .func = touch_cb };
 
+static int64_t update_commit_alarm_callback(alarm_id_t _, void* __)
+{
+	update_commit_and_reboot();
+}
+
 void reg_process_packet(uint8_t in_reg, uint8_t in_data, uint8_t *out_buffer, uint8_t *out_len)
 {
+	int rc;
 	const bool is_write = (in_reg & PACKET_WRITE_MASK);
 	const uint8_t reg = (in_reg & ~PACKET_WRITE_MASK);
-	enum update_mode update_mode = UPDATE_OFF;
 	uint16_t adc_value;
 
 //	printf("read complete, is_write: %d, reg: 0x%02X\r\n", is_write, reg);
 
 	*out_len = 0;
-
-	// Special update modes
-	if (update_mode == UPDATE_RECV) {
-		if (update_recv(in_data) < 0) {
-			update_mode = UPDATE_OFF;
-		}
-	}
 
 	switch (reg) {
 
@@ -158,7 +155,7 @@ void reg_process_packet(uint8_t in_reg, uint8_t in_data, uint8_t *out_buffer, ui
 	}
 
 	// Rewake on timer
-	case 0xff: //REG_ID_REWAKE_MINS:
+	case REG_ID_REWAKE_MINS:
 	{
 		// Only run this if driver was loaded
 		// Otherwise, OS won't get the power key event
@@ -215,28 +212,56 @@ void reg_process_packet(uint8_t in_reg, uint8_t in_data, uint8_t *out_buffer, ui
 		break;
 	}
 
-	case REG_ID_REWAKE_MINS:
 	case REG_ID_UPDATE_DATA:
 	{
 		if (is_write) {
-#if 0
-			if (update_mode == UPDATE_OFF) {
+
+			if (reg_get_value(REG_ID_UPDATE_DATA) == UPDATE_OFF) {
 				update_init();
-				update_mode = UPDATE_RECV;
+				reg_set_value(REG_ID_UPDATE_DATA, UPDATE_RECV);
 			}
 
-			update_recv(in_data);
-#else
-			update_init();
-			for (size_t i = 0; i < sim_update_len; i++) {
-				if (update_recv(sim_update[i]) < 0) {
-					break;
+			if (reg_get_value(REG_ID_UPDATE_DATA) == UPDATE_RECV) {
+
+				if ((rc = update_recv(in_data))) {
+
+					// Update failed
+					if (rc < 0) {
+						reg_set_value(REG_ID_UPDATE_DATA, (uint8_t)(-rc));
+					}
+
+					// Otherwise, there's more to read
+
+				// Update read successfully
+				} else {
+
+					reg_set_value(REG_ID_UPDATE_DATA, UPDATE_OFF);
+
+					// Send shutdown signal to OS
+					keyboard_inject_power_key();
+
+					// Power off with grace time to give Pi time to shut down
+					uint32_t shutdown_grace_ms = MAX(
+						reg_get_value(REG_ID_SHUTDOWN_GRACE) * 1000,
+						MINIMUM_SHUTDOWN_GRACE_MS);
+					pi_schedule_power_off(shutdown_grace_ms);
+					add_alarm_in_ms(shutdown_grace_ms + 10,
+						update_commit_alarm_callback, NULL, true);
 				}
 			}
-#endif
+
 		} else {
-			out_buffer[0] = (uint8_t)update_mode;
+			out_buffer[0] = reg_get_value(REG_ID_UPDATE_DATA);
 			*out_len = sizeof(uint8_t);
+		}
+		break;
+	}
+
+	case REG_ID_UPDATE_RESET:
+	{
+		if (is_write) {
+			update_init();
+			reg_set_value(REG_ID_UPDATE_DATA, UPDATE_OFF);
 		}
 		break;
 	}
@@ -339,7 +364,7 @@ void reg_init(void)
 	reg_set_value(REG_ID_CF2, CF2_TOUCH_INT | CF2_USB_KEYB_ON | CF2_USB_MOUSE_ON);
 	reg_set_value(REG_ID_DRIVER_STATE, 0); // Driver not yet loaded
 
-	reg_set_value(REG_ID_SHUTDOWN_GRACE, 45);
+	reg_set_value(REG_ID_SHUTDOWN_GRACE, 30);
 
 	touchpad_add_touch_callback(&touch_callback);
 }

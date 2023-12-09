@@ -18,6 +18,8 @@ struct hex_record
 	uint8_t data[256];
 };
 
+#define FLASH_IMAGE_MAX_SIZE 65536
+
 // Hex record types
 static const uint8_t TYPE_DATA = 0x00;
 static const uint8_t TYPE_EOF = 0x01;
@@ -33,7 +35,7 @@ static const uint32_t FLASH_IMAGE_OFFSET = 128 * 1024;
 static union
 {
 	tFlashHeader header;
-	uint8_t buf[sizeof(tFlashHeader) + 65536];
+	uint8_t buf[sizeof(tFlashHeader) + FLASH_IMAGE_MAX_SIZE];
 } flashbuf;
 
 static uint32_t crc32(const uint8_t *data, uint32_t len, uint32_t crc)
@@ -80,46 +82,57 @@ static int parse_2ch_hex(char const* str, uint8_t* value)
 	return hex2nibble(*str++, value) || hex2nibble(*str, value);
 }
 
+// See https://github.com/rhulme/pico-flashloader/blob/master/app.c
 static int process_hex_record(char const* line, struct hex_record* record)
 {
 	int rc = 0;
 
-	int offset = 0;
-	uint8_t value = 0;
+	uint8_t parsed_value = 0;
 	uint8_t data[256 + 5]; // Max payload 256 bytes plus 5 for fields
+	size_t data_offset = 0;
 	uint8_t checksum = 0;
 
-	while (*line && (*line != ':')) {
+	while ((*line != '\0') && (*line != ':')) {
 		line++;
 	}
 
-	if (*line++ == ':') {
-		while ((*line != '\0') && (offset < sizeof(data))) {
+	if (*line == '\0') {
+		return -UPDATE_FAILED_BAD_LINE;
+	}
 
-			if (parse_2ch_hex(line, &value)) {
-				return -1;
-			}
+	// Advance past :
+	line++;
 
-			data[offset++] = value;
-			checksum += value;
-			line += 2;
+	while ((*line != '\0') && (data_offset < sizeof(data))) {
+
+		if ((line[1] == '\0')
+		 || parse_2ch_hex(line, &parsed_value)) {
+			return -UPDATE_FAILED_BAD_LINE;
 		}
+
+		data[data_offset] = parsed_value;
+		data_offset++;
+		checksum += parsed_value;
+		line += 2;
 	}
 
 	// Checksum is two's-complement of the sum of the previous bytes so
 	// final checksum should be zero if everything was OK.
-	if ((offset > 0) && (checksum == 0)) {
-		record->count = data[0];
-		record->addr  = data[2] | (data[1] << 8);
-		record->type  = data[3];
-		memcpy(record->data, &data[4], data[0]);
-
-		return 0;
+	if (data_offset == 0) {
+		return -UPDATE_FAILED_BAD_LINE;
+	} else if (checksum != 0) {
+		return -UPDATE_FAILED_BAD_CHECKSUM;
 	}
 
-	return -2;
+	record->count = data[0];
+	record->addr  = data[2] | (data[1] << 8);
+	record->type  = data[3];
+	memcpy(record->data, &data[4], data[0]);
+
+	return 0;
 }
 
+// See https://github.com/rhulme/pico-flashloader/blob/master/flashloader.c
 static void flash_image(tFlashHeader* header, uint32_t length)
 {
 	uint32_t total_length, erase_length, status;
@@ -154,10 +167,10 @@ static void flash_image(tFlashHeader* header, uint32_t length)
 	}
 }
 
-char update_line[1024];
-size_t update_line_idx;
-struct hex_record update_record;
-size_t flashbuf_offset;
+static char update_line[1024];
+static size_t update_line_idx = 0;
+static struct hex_record update_record;
+static size_t flashbuf_offset = 0;
 
 void update_init()
 {
@@ -169,53 +182,74 @@ int update_recv(uint8_t b)
 {
 	int rc;
 
+	// Check for line overflow
 	if (update_line_idx == sizeof(update_line)) {
-		reg_set_value(REG_ID_STARTUP_REASON, 10);
-		return -1;
+		return -UPDATE_FAILED_LINE_OVERFLOW;
 	}
 
+	// Check for line terminator
 	if ((b == '\n') || (b == '\r')) {
+
+		// Ignore empty line
+		if (update_line_idx == 0) {
+			return 1;
+		}
+
 		b = '\0';
 	}
 
+	// Set next character
 	update_line[update_line_idx++] = b;
 
+	// If line wasn't done, return to read more
 	if (b) {
-		return 0;
+		return 1;
 	}
 
-	if ((rc = process_hex_record(update_line, &update_record))) {
-		rc = (-rc) + 10;
-		reg_set_value(REG_ID_STARTUP_REASON, rc);
-		return -1;
+	// Process incoming line
+	if ((rc = process_hex_record(update_line, &update_record)) < 0) {
+		return rc;
 	}
 
+	// Reset to beginning of line buffer
 	update_line_idx = 0;
+	update_line[0] = '\0';
 
 	switch (update_record.type) {
 
+	// Copy parsed updated data into flash buffer
 	case TYPE_DATA:
-		memcpy(&flashbuf.header.data[flashbuf_offset], update_record.data, update_record.count);
+		memcpy(&flashbuf.header.data[flashbuf_offset],
+			update_record.data, update_record.count);
 		flashbuf_offset += update_record.count;
-		flashbuf_offset %= 65536;
-		break;
+		if (flashbuf_offset >= FLASH_IMAGE_MAX_SIZE) {
+			return -UPDATE_FAILED_FLASH_OVERFLOW;
+		}
+		return 1;
 
+	// Complete firmware received
 	case TYPE_EOF:
-		flash_image(&flashbuf.header, flashbuf_offset);
-		return -1;
-		break;
+		if (flashbuf_offset == 0) {
+			return -UPDATE_FAILED_FLASH_EMPTY;
+		}
 
+		return 0;
+
+	// Reset flash buffer
 	case TYPE_EXTLIN:
 		flashbuf_offset = 0;
-		break;
+		return 1;
 
+	// Ignore
 	case TYPE_EXTSEG:
 	case TYPE_STARTSEG:
 	case TYPE_STARTLIN:
 	default:
-		// Ignore
-		break;
+		return 1;
 	}
+}
 
-	return 0;
+void update_commit_and_reboot(void)
+{
+	flash_image(&flashbuf.header, flashbuf_offset);
 }
