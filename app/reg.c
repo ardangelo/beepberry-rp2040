@@ -257,15 +257,6 @@ void reg_process_packet(uint8_t in_reg, uint8_t in_data, uint8_t *out_buffer, ui
 		break;
 	}
 
-	case REG_ID_UPDATE_RESET:
-	{
-		if (is_write) {
-			update_init();
-			reg_set_value(REG_ID_UPDATE_DATA, UPDATE_OFF);
-		}
-		break;
-	}
-
 	// read-only registers
 	case REG_ID_TOX:
 	case REG_ID_TOY:

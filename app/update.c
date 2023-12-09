@@ -1,4 +1,5 @@
 #include <string.h>
+#include <ctype.h>
 
 #include <hardware/sync.h>
 #include <hardware/flash.h>
@@ -171,24 +172,43 @@ static char update_line[1024];
 static size_t update_line_idx = 0;
 static struct hex_record update_record;
 static size_t flashbuf_offset = 0;
+static int update_reading_header = 0;
 
 void update_init()
 {
 	update_line_idx = 0;
+	update_line[0] = '\0';
 	flashbuf_offset = 0;
+	update_reading_header = 0;
 }
 
 int update_recv(uint8_t b)
 {
 	int rc;
 
-	// Check for line overflow
-	if (update_line_idx == sizeof(update_line)) {
-		return -UPDATE_FAILED_LINE_OVERFLOW;
+	// Check for header
+	if (b == '+') {
+		update_init();
+		update_reading_header = 1;
+		return 1;
+	}
+
+	// Ignore invalid characters
+	if (!update_reading_header // Header can contain any characters
+	 && !isalnum(b) // Hex
+	 && (b != ':')  // Intel HEX line start
+	 && (b != '\n')) {
+		return 1;
 	}
 
 	// Check for line terminator
-	if ((b == '\n') || (b == '\r')) {
+	if (b == '\n') {
+
+		// End header
+		if (update_reading_header) {
+			update_reading_header = 0;
+			return 1;
+		}
 
 		// Ignore empty line
 		if (update_line_idx == 0) {
@@ -198,11 +218,22 @@ int update_recv(uint8_t b)
 		b = '\0';
 	}
 
+	// Check for line overflow
+	if (update_line_idx == sizeof(update_line)) {
+		return -UPDATE_FAILED_LINE_OVERFLOW;
+	}
+
 	// Set next character
 	update_line[update_line_idx++] = b;
 
 	// If line wasn't done, return to read more
 	if (b) {
+		return 1;
+	}
+
+	// Check for firmware header
+	if (update_line[0] == '+') {
+		update_init();
 		return 1;
 	}
 

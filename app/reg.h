@@ -51,7 +51,6 @@ enum reg_id
 
 	REG_ID_UPDATE_DATA = 0x30, // Write HEX data to start firmware update mode
 	// Read to get update mode (off, receiving, failed)
-	REG_ID_UPDATE_RESET = 0x31, // Write to reset in-progress or failed update
 
 	REG_ID_LAST,
 };
