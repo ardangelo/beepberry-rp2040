@@ -34,15 +34,15 @@ static const uint8_t kbd_entries[NUM_OF_ROWS][NUM_OF_COLS] =
 { { KEY_COMPOSE, KEY_W, KEY_G, KEY_S, KEY_L, KEY_H }
 , {         0x0, KEY_Q, KEY_R, KEY_E, KEY_O, KEY_U }
 //     Call button
-, {    KEY_OPEN, KEY_0, KEY_F, KEY_LEFTSHIFT, KEY_K, KEY_J }
+, {    KEY_OPEN, KEY_0, KEY_F, /*KEY_LEFTSHIFT*/0x0, KEY_K, KEY_J }
 , {         0x0, KEY_SPACE, KEY_C, KEY_Z, KEY_M, KEY_N }
 //    Berry key  Symbol key
-, {   KEY_PROPS, KEY_RIGHTALT, KEY_T, KEY_D, KEY_I, KEY_Y }
+, {   KEY_PROPS, /*KEY_RIGHTALT*/0x0, KEY_T, KEY_D, KEY_I, KEY_Y }
 //      Back key Alt key
-, {     KEY_ESC, KEY_LEFTALT, KEY_V, KEY_X, KEY_MUTE, KEY_B }
-, {         0x0, KEY_A, KEY_RIGHTSHIFT, KEY_P, KEY_BACKSPACE, KEY_ENTER }
+, {     KEY_ESC, /*KEY_LEFTALT*/0x0, KEY_V, KEY_X, KEY_MUTE, KEY_B }
+, {         0x0, KEY_A, /*KEY_RIGHTSHIFT*/0x0, KEY_P, KEY_BACKSPACE, KEY_ENTER }
 };
-static bool kbd_pressed_state[NUM_OF_ROWS][NUM_OF_COLS] = {};
+static bool kbd_pressed[NUM_OF_ROWS][NUM_OF_COLS] = {};
 
 #if NUM_OF_BTNS > 0
 
@@ -55,14 +55,18 @@ static const uint8_t btn_pins[NUM_OF_BTNS] = { 4 };
 
 struct hold_key
 {
-	uint8_t keycode;
+	uint8_t keycode, row, col;
 	enum key_state state;
-	uint hold_start_time;
+	uint32_t hold_start_time;
 };
 
 static struct hold_key power_hold_key;
+static struct hold_key leftshift_hold_key;
+static struct hold_key rightshift_hold_key;
+static struct hold_key alt_hold_key;
+static struct hold_key sym_hold_key;
 
-static void transition_hold_key_state(struct hold_key* hold_key, bool const pressed)
+static bool transition_hold_key_state(struct hold_key* hold_key, bool const pressed)
 {
 	uint key_held_for;
 
@@ -75,6 +79,8 @@ static void transition_hold_key_state(struct hold_key* hold_key, bool const pres
 
 				// Track hold time for transitioning to Hold and Long Hold states
 				hold_key->hold_start_time = to_ms_since_boot(get_absolute_time());
+
+				return true;
 			}
 			break;
 
@@ -84,9 +90,11 @@ static void transition_hold_key_state(struct hold_key* hold_key, bool const pres
 				- hold_key->hold_start_time;
 			if (key_held_for > (reg_get_value(REG_ID_HLD) * 10)) {
 				hold_key->state = KEY_STATE_HOLD;
+				return true;
 
 			} else if (!pressed) {
 				hold_key->state = KEY_STATE_RELEASED;
+				return true;
 			}
 			break;
 
@@ -94,6 +102,7 @@ static void transition_hold_key_state(struct hold_key* hold_key, bool const pres
 		case KEY_STATE_HOLD:
 			if (!pressed) {
 				hold_key->state = KEY_STATE_RELEASED;
+				return true;
 
 			} else {
 
@@ -102,6 +111,7 @@ static void transition_hold_key_state(struct hold_key* hold_key, bool const pres
 					- hold_key->hold_start_time;
 				if (key_held_for > LONG_HOLD_MS) {
 					hold_key->state = KEY_STATE_LONG_HOLD;
+					return true;
 
 				// Power back on if unloaded
 				} else if (hold_key->keycode == KEY_POWER) {
@@ -110,6 +120,7 @@ static void transition_hold_key_state(struct hold_key* hold_key, bool const pres
 					if (reg_get_value(REG_ID_DRIVER_STATE) == 0) {
 						pi_power_on(POWER_ON_BUTTON);
 						hold_key->state = KEY_STATE_RAN_ACTION;
+						return true;
 					}
 				}
 			}
@@ -119,6 +130,7 @@ static void transition_hold_key_state(struct hold_key* hold_key, bool const pres
 		case KEY_STATE_LONG_HOLD:
 			if (!pressed) {
 				hold_key->state = KEY_STATE_RELEASED;
+				return true;
 
 			// Driver loaded, send power off
 			} else if (reg_get_value(REG_ID_DRIVER_STATE) > 0) {
@@ -130,6 +142,7 @@ static void transition_hold_key_state(struct hold_key* hold_key, bool const pres
 				pi_schedule_power_off(shutdown_grace_ms);
 
 				hold_key->state = KEY_STATE_RAN_ACTION;
+				return true;
 			}
 
 			break;
@@ -137,67 +150,69 @@ static void transition_hold_key_state(struct hold_key* hold_key, bool const pres
 		// Released -> Idle
 		case KEY_STATE_RELEASED:
 			hold_key->state = KEY_STATE_IDLE;
-			break;
+			return true;
 
 		// Ran action -> released
 		case KEY_STATE_RAN_ACTION:
 			if (!pressed) {
 				hold_key->state = KEY_STATE_RELEASED;
+				return true;
 			}
 			break;
 	}
+
+	return false;
 }
 
-static void handle_power_key_event(struct hold_key* power_key, bool pressed)
+static void handle_power_key_event(bool pressed)
 {
-	// Save previous state
-	enum key_state state = power_key->state;
-
 	// Transition state
-	transition_hold_key_state(power_key, pressed);
-
-	// Compare to previous state
-	if (state == power_key->state) {
+	if (!transition_hold_key_state(&power_hold_key, pressed)) {
 		return;
 	}
 
 	// Normal press / release sends KEY_STOP
-	if ((power_key->state == KEY_STATE_PRESSED)
-	 || (power_key->state == KEY_STATE_RELEASED)) {
-		keyboard_inject_event(KEY_STOP, power_key->state);
+	if ((power_hold_key.state == KEY_STATE_PRESSED)
+	 || (power_hold_key.state == KEY_STATE_RELEASED)) {
+		keyboard_inject_event(KEY_STOP, power_hold_key.state);
 
 	// Long hold sends KEY_POWER
-	} else if (power_key->state == KEY_STATE_LONG_HOLD) {
+	} else if (power_hold_key.state == KEY_STATE_LONG_HOLD) {
 		keyboard_inject_power_key();
 	}
+}
+
+static void handle_hold_key_event(struct hold_key* hold_key)
+{
+	bool pressed = kbd_pressed[hold_key->row][hold_key->col];
+
+	// Transition state
+	if (!transition_hold_key_state(hold_key, pressed)) {
+		return;
+	}
+
+	keyboard_inject_event(hold_key->keycode, hold_key->state);
 }
 
 static void handle_key_event(uint r, uint c, bool pressed)
 {
 	uint8_t keycode;
-	bool send_update = false;
-	enum key_state state;
+
+	// Don't send unchanged state
+	if (pressed == kbd_pressed[r][c]) {
+		return;
+	}
 
 	// Get keycode
 	keycode = kbd_entries[r][c];
 
 	// Don't send disabled keycodes
-	if (keycode == 0) {
-		return;
+	if (keycode > 0) {
+		keyboard_inject_event(keycode, (pressed)
+			? KEY_STATE_PRESSED
+			: KEY_STATE_RELEASED);
 	}
-
-	// Basic press / release alpha key
-	send_update = (kbd_pressed_state[r][c] != pressed);
-	kbd_pressed_state[r][c] = pressed;
-	state = (pressed) ? KEY_STATE_PRESSED : KEY_STATE_RELEASED;
-
-	// Don't send duplicate key events
-	if (!send_update) {
-		return;
-	}
-
-	// Report key to input system
-	keyboard_inject_event(keycode, state);
+	kbd_pressed[r][c] = pressed;
 }
 
 static int64_t timer_task(alarm_id_t id, void *user_data)
@@ -222,10 +237,16 @@ static int64_t timer_task(alarm_id_t id, void *user_data)
 		gpio_set_dir(col_pins[c], GPIO_IN);
 	}
 
+	// Handle modifier hold keys
+	handle_hold_key_event(&leftshift_hold_key);
+	handle_hold_key_event(&rightshift_hold_key);
+	handle_hold_key_event(&alt_hold_key);
+	handle_hold_key_event(&sym_hold_key);
+
 #if NUM_OF_BTNS > 0
 	for (i = 0; i < NUM_OF_BTNS; i++) {
 		pressed = (gpio_get(btn_pins[i]) == 0);
-		handle_power_key_event(&power_hold_key, pressed);
+		handle_power_key_event(pressed);
 	}
 #endif
 
@@ -307,6 +328,26 @@ void keyboard_init(void)
 	// Holdable modfiier keys
 	power_hold_key.keycode = KEY_POWER;
 	power_hold_key.state = KEY_STATE_IDLE;
+
+	leftshift_hold_key.keycode = KEY_LEFTSHIFT;
+	leftshift_hold_key.row = 2;
+	leftshift_hold_key.col = 3;
+	leftshift_hold_key.state = KEY_STATE_IDLE;
+
+	rightshift_hold_key.keycode = KEY_RIGHTSHIFT;
+	rightshift_hold_key.row = 6;
+	rightshift_hold_key.col = 2;
+	rightshift_hold_key.state = KEY_STATE_IDLE;
+
+	alt_hold_key.keycode = KEY_LEFTALT;
+	alt_hold_key.row = 5;
+	alt_hold_key.col = 1;
+	alt_hold_key.state = KEY_STATE_IDLE;
+
+	sym_hold_key.keycode = KEY_RIGHTALT;
+	sym_hold_key.row = 4;
+	sym_hold_key.col = 1;
+	sym_hold_key.state = KEY_STATE_IDLE;
 
 	add_alarm_in_ms(reg_get_value(REG_ID_FRQ), timer_task, NULL, true);
 }
