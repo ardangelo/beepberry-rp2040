@@ -60,6 +60,9 @@ struct hold_key
 	uint32_t hold_start_time;
 };
 
+static struct hold_key call_hold_key;
+static struct hold_key berry_hold_key;
+static struct hold_key back_hold_key;
 static struct hold_key power_hold_key;
 static struct hold_key leftshift_hold_key;
 static struct hold_key rightshift_hold_key;
@@ -112,16 +115,6 @@ static bool transition_hold_key_state(struct hold_key* hold_key, bool const pres
 				if (key_held_for > LONG_HOLD_MS) {
 					hold_key->state = KEY_STATE_LONG_HOLD;
 					return true;
-
-				// Power back on if unloaded
-				} else if (hold_key->keycode == KEY_POWER) {
-
-					// Driver unloaded, power back on
-					if (reg_get_value(REG_ID_DRIVER_STATE) == 0) {
-						pi_power_on(POWER_ON_BUTTON);
-						hold_key->state = KEY_STATE_RAN_ACTION;
-						return true;
-					}
 				}
 			}
 			break;
@@ -131,18 +124,6 @@ static bool transition_hold_key_state(struct hold_key* hold_key, bool const pres
 			if (!pressed) {
 				hold_key->state = KEY_STATE_RELEASED;
 				return true;
-
-			// Driver loaded, send power off
-			} else if (reg_get_value(REG_ID_DRIVER_STATE) > 0) {
-
-				// Schedule power off
-				uint32_t shutdown_grace_ms = MAX(
-					reg_get_value(REG_ID_SHUTDOWN_GRACE) * 1000,
-					MINIMUM_SHUTDOWN_GRACE_MS);
-				pi_schedule_power_off(shutdown_grace_ms);
-
-				hold_key->state = KEY_STATE_RAN_ACTION;
-				return true;
 			}
 
 			break;
@@ -151,14 +132,6 @@ static bool transition_hold_key_state(struct hold_key* hold_key, bool const pres
 		case KEY_STATE_RELEASED:
 			hold_key->state = KEY_STATE_IDLE;
 			return true;
-
-		// Ran action -> released
-		case KEY_STATE_RAN_ACTION:
-			if (!pressed) {
-				hold_key->state = KEY_STATE_RELEASED;
-				return true;
-			}
-			break;
 	}
 
 	return false;
@@ -168,6 +141,8 @@ static void handle_power_key_event(bool pressed)
 {
 	// Transition state
 	if (!transition_hold_key_state(&power_hold_key, pressed)) {
+
+		// State not updated, return
 		return;
 	}
 
@@ -176,9 +151,26 @@ static void handle_power_key_event(bool pressed)
 	 || (power_hold_key.state == KEY_STATE_RELEASED)) {
 		keyboard_inject_event(KEY_STOP, power_hold_key.state);
 
+	// Short press while driver unloaded powers Pi on
+	 } if (power_hold_key.state == KEY_STATE_HOLD) {
+
+		if (reg_get_value(REG_ID_DRIVER_STATE) == 0) {
+			pi_power_on(POWER_ON_BUTTON);
+		}
+
 	// Long hold sends KEY_POWER
 	} else if (power_hold_key.state == KEY_STATE_LONG_HOLD) {
 		keyboard_inject_power_key();
+
+		// If driver loaded, send power off
+		if (reg_get_value(REG_ID_DRIVER_STATE) > 0) {
+
+			// Schedule power off
+			uint32_t shutdown_grace_ms = MAX(
+				reg_get_value(REG_ID_SHUTDOWN_GRACE) * 1000,
+				MINIMUM_SHUTDOWN_GRACE_MS);
+			pi_schedule_power_off(shutdown_grace_ms);
+		}
 	}
 }
 

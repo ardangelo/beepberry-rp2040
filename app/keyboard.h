@@ -12,7 +12,6 @@ enum key_state
 	KEY_STATE_HOLD = 2,
 	KEY_STATE_RELEASED = 3,
 	KEY_STATE_LONG_HOLD = 4,
-	KEY_STATE_RAN_ACTION = 5,
 };
 
 #define LONG_HOLD_MS    5000
