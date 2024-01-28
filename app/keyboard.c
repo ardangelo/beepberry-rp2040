@@ -33,11 +33,11 @@ static const uint8_t kbd_entries[NUM_OF_ROWS][NUM_OF_COLS] =
 //  Touchpad center key
 { { KEY_COMPOSE, KEY_W, KEY_G, KEY_S, KEY_L, KEY_H }
 , {         0x0, KEY_Q, KEY_R, KEY_E, KEY_O, KEY_U }
-//     Call button
-, {    KEY_OPEN, KEY_0, KEY_F, /*KEY_LEFTSHIFT*/0x0, KEY_K, KEY_J }
+//   Call button
+, { /*KEY_OPEN*/0x0, KEY_0, KEY_F, /*KEY_LEFTSHIFT*/0x0, KEY_K, KEY_J }
 , {         0x0, KEY_SPACE, KEY_C, KEY_Z, KEY_M, KEY_N }
 //    Berry key  Symbol key
-, {   KEY_PROPS, /*KEY_RIGHTALT*/0x0, KEY_T, KEY_D, KEY_I, KEY_Y }
+, { /*KEY_PROPS*/0x0, /*KEY_RIGHTALT*/0x0, KEY_T, KEY_D, KEY_I, KEY_Y }
 //      Back key Alt key
 , {     KEY_ESC, /*KEY_LEFTALT*/0x0, KEY_V, KEY_X, KEY_MUTE, KEY_B }
 , {         0x0, KEY_A, /*KEY_RIGHTSHIFT*/0x0, KEY_P, KEY_BACKSPACE, KEY_ENTER }
@@ -62,7 +62,6 @@ struct hold_key
 
 static struct hold_key call_hold_key;
 static struct hold_key berry_hold_key;
-static struct hold_key back_hold_key;
 static struct hold_key power_hold_key;
 static struct hold_key leftshift_hold_key;
 static struct hold_key rightshift_hold_key;
@@ -156,6 +155,10 @@ static void handle_power_key_event(bool pressed)
 
 		if (reg_get_value(REG_ID_DRIVER_STATE) == 0) {
 			pi_power_on(POWER_ON_BUTTON);
+
+		// Send power short hold event
+		} else {
+			keyboard_inject_event(KEY_STOP, power_hold_key.state);
 		}
 
 	// Long hold sends KEY_POWER
@@ -230,6 +233,8 @@ static int64_t timer_task(alarm_id_t id, void *user_data)
 	}
 
 	// Handle modifier hold keys
+	handle_hold_key_event(&call_hold_key);
+	handle_hold_key_event(&berry_hold_key);
 	handle_hold_key_event(&leftshift_hold_key);
 	handle_hold_key_event(&rightshift_hold_key);
 	handle_hold_key_event(&alt_hold_key);
@@ -318,6 +323,17 @@ void keyboard_init(void)
 #endif
 
 	// Holdable modfiier keys
+
+	call_hold_key.keycode = KEY_OPEN;
+	call_hold_key.row = 2;
+	call_hold_key.col = 0;
+	call_hold_key.state = KEY_STATE_IDLE;
+
+	berry_hold_key.keycode = KEY_PROPS;
+	berry_hold_key.row = 4;
+	berry_hold_key.col = 0;
+	berry_hold_key.state = KEY_STATE_IDLE;
+
 	power_hold_key.keycode = KEY_POWER;
 	power_hold_key.state = KEY_STATE_IDLE;
 
